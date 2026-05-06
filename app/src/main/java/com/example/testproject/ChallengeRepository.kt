@@ -1,5 +1,7 @@
 package com.example.testproject
 
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 
 data class Challenge(
@@ -318,8 +320,26 @@ class ChallengeRepository {
     fun getChallengeById(id: Int): Challenge? = allChallenges.find { it.id == id }
 }
 
-class MainViewModel : ViewModel() {
+class MainViewModel(application: android.app.Application) : AndroidViewModel(application) {
     private val repository = ChallengeRepository()
+    private val progressManager = ProgressManager(application.applicationContext)
+
     fun getChallenges(): List<Challenge> = repository.getAllChallenges()
     fun getChallengeById(id: Int): Challenge? = repository.getChallengeById(id)
+
+    // Методы для прогресса
+    fun markSolved(challengeId: Int) = progressManager.markChallengeSolved(challengeId)
+    fun isSolved(challengeId: Int): Boolean = progressManager.isChallengeSolved(challengeId)
+    fun getSolvedCount(): Int = progressManager.getSolvedCount()
+    fun getTotalCount(): Int = repository.getAllChallenges().size
+    fun getProgressPercent(): Float = (getSolvedCount().toFloat() / getTotalCount() * 100)
+
+    // Методы для сохранения кода
+    fun saveCode(challengeId: Int, code: String) = progressManager.saveUserCode(challengeId, code)
+    fun getSavedCode(challengeId: Int): String? = progressManager.getUserCode(challengeId)
+
+    fun resetAllProgress() {
+        val app = getApplication<android.app.Application>()
+        ProgressManager(app.applicationContext).resetAllProgress()
+    }
 }
