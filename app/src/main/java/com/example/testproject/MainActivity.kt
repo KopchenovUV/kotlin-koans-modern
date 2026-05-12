@@ -75,6 +75,7 @@ fun AppTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable ()
 
 // ============ НАВИГАЦИЯ ============
 sealed class Screen(val route: String) {
+    object Auth : Screen("auth")
     object Home : Screen("home")
     object Challenges : Screen("challenges")
     object Challenge : Screen("challenge/{challengeId}") {
@@ -228,12 +229,144 @@ fun TheoryDetailScreen(
         }
     }
 }
-// ============ ГЛАВНЫЙ (ДОМАШНИЙ) ЭКРАН ============
+
+// ============ ЭКРАН АВТОРИЗАЦИИ ============
+// ============ ЭКРАН АВТОРИЗАЦИИ ============
+@Composable
+fun AuthScreen(
+    onLoginSuccess: () -> Unit
+) {
+    val authManager = remember { AuthManager() }
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var isLogin by remember { mutableStateOf(true) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
+
+    // Запоминаем, что уже переходим на главный экран (чтобы не дёргаться)
+    var navigateToHome by remember { mutableStateOf(false) }
+
+    val coroutineScope = rememberCoroutineScope()
+
+    // Если уже вошёл или нужно перейти — сразу на главный экран
+    LaunchedEffect(navigateToHome) {
+        if (authManager.isLoggedIn() || navigateToHome) {
+            onLoginSuccess()
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text("🇰", fontSize = 72.sp)
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = if (isLogin) "Вход" else "Регистрация",
+            style = MaterialTheme.typography.headlineLarge,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(32.dp))
+
+        OutlinedTextField(
+            value = email,
+            onValueChange = { email = it; errorMessage = null },
+            label = { Text("Email") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+
+        OutlinedTextField(
+            value = password,
+            onValueChange = { password = it; errorMessage = null },
+            label = { Text("Пароль") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (errorMessage != null) {
+            Text(
+                text = errorMessage!!,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+
+        Button(
+            onClick = {
+                if (email.isBlank() || password.isBlank()) {
+                    errorMessage = "Заполните все поля"
+                    return@Button
+                }
+                if (password.length < 6) {
+                    errorMessage = "Пароль должен быть не менее 6 символов"
+                    return@Button
+                }
+                isLoading = true
+                errorMessage = null
+                coroutineScope.launch {
+                    val result = if (isLogin) {
+                        authManager.login(email, password)
+                    } else {
+                        authManager.register(email, password)
+                    }
+                    isLoading = false
+                    result.fold(
+                        onSuccess = {
+                            // Ставим флаг — и LaunchedEffect сам сделает переход
+                            navigateToHome = true
+                        },
+                        onFailure = {
+                            errorMessage = when {
+                                it.message?.contains("no user record") == true -> "Пользователь не найден"
+                                it.message?.contains("email address is already in use") == true -> "Email уже используется"
+                                it.message?.contains("password is invalid") == true -> "Неверный пароль"
+                                it.message?.contains("network error") == true -> "Ошибка сети. Проверьте интернет"
+                                else -> it.message ?: "Неизвестная ошибка"
+                            }
+                        }
+                    )
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !isLoading
+        ) {
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    strokeWidth = 2.dp
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(if (isLogin) "Входим..." else "Регистрируемся...")
+            } else {
+                Text(if (isLogin) "Войти" else "Зарегистрироваться")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        TextButton(onClick = {
+            isLogin = !isLogin
+            errorMessage = null
+        }) {
+            Text(if (isLogin) "Нет аккаунта? Зарегистрироваться" else "Уже есть аккаунт? Войти")
+        }
+    }
+}
+
 // ============ ГЛАВНЫЙ (ДОМАШНИЙ) ЭКРАН ============
 @Composable
 fun HomeScreen(
     onStartClick: () -> Unit,
     onTheoryClick: () -> Unit,
+    onLogoutClick: () -> Unit,
     viewModel: MainViewModel = viewModel()
 ) {
     val solvedCount = viewModel.getSolvedCount()
@@ -241,11 +374,11 @@ fun HomeScreen(
     val progressPercent = viewModel.getProgressPercent()
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Фоновый градиент — теперь зелёный цвет тянется дольше
+        // Фоновый градиент
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.55f) // Занимает 55% экрана
+                .fillMaxHeight(0.55f)
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
@@ -265,144 +398,70 @@ fun HomeScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
         ) {
-            // Верхняя часть с приветствием
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(32.dp),
+                modifier = Modifier.fillMaxWidth().padding(32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Spacer(modifier = Modifier.height(48.dp))
-
-                // Иконка Kotlin
-                Text(
-                    text = "🇰",
-                    fontSize = 72.sp
-                )
-
+                Text("🇰", fontSize = 72.sp)
                 Spacer(modifier = Modifier.height(16.dp))
-
                 Text(
                     text = "Kotlin Koans",
                     style = MaterialTheme.typography.headlineLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onPrimary
                 )
-
                 Spacer(modifier = Modifier.height(8.dp))
-
                 Text(
                     text = "Изучай Kotlin через практику",
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f)
                 )
-
                 Spacer(modifier = Modifier.height(32.dp))
 
-                // Карточка прогресса
                 if (solvedCount > 0) {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surface
-                        ),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                         shape = RoundedCornerShape(16.dp),
                         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
-                            Text(
-                                text = "Твой прогресс",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
+                            Text("Твой прогресс", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                             Spacer(modifier = Modifier.height(8.dp))
-                            LinearProgressIndicator(
-                                progress = { progressPercent / 100f },
-                                modifier = Modifier.fillMaxWidth(),
-                                color = MaterialTheme.colorScheme.primary,
-                                trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                            )
+                            LinearProgressIndicator(progress = { progressPercent / 100f }, modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.surfaceVariant)
                             Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "$solvedCount из $totalCount заданий решено",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                            )
+                            Text("$solvedCount из $totalCount заданий решено", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
                         }
                     }
                     Spacer(modifier = Modifier.height(24.dp))
                 }
             }
 
-            // Кнопки-карточки
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-            ) {
-                // Кнопка "Задания"
-                HomeButton(
-                    icon = Icons.Default.Code,
-                    title = "Задания",
-                    subtitle = "$totalCount интерактивных задач",
-                    color = MaterialTheme.colorScheme.primary,
-                    onClick = onStartClick
-                )
-
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                HomeButton(icon = Icons.Default.Code, title = "Задания", subtitle = "$totalCount интерактивных задач", color = MaterialTheme.colorScheme.primary, onClick = onStartClick)
                 Spacer(modifier = Modifier.height(12.dp))
-
-                // Кнопка "Теория" — теперь работает!
-                HomeButton(
-                    icon = Icons.Default.MenuBook,
-                    title = "Теория",
-                    subtitle = "Основы языка Kotlin",
-                    color = Color(0xFF1565C0),
-                    onClick = onTheoryClick
-                )
-
+                HomeButton(icon = Icons.Default.MenuBook, title = "Теория", subtitle = "Основы языка Kotlin", color = Color(0xFF1565C0), onClick = onTheoryClick)
                 Spacer(modifier = Modifier.height(12.dp))
+                HomeButton(icon = Icons.Default.EmojiEvents, title = "Достижения", subtitle = "Скоро появится", color = Color(0xFFE65100), enabled = false, onClick = { })
+                Spacer(modifier = Modifier.height(24.dp))
 
-                // Кнопка "Достижения" (заглушка)
-                HomeButton(
-                    icon = Icons.Default.EmojiEvents,
-                    title = "Достижения",
-                    subtitle = "Скоро появится",
-                    color = Color(0xFFE65100),
-                    enabled = false,
-                    onClick = { }
-                )
-
-                Spacer(modifier = Modifier.height(32.dp))
-
-                // Информация о приложении
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                    )
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = "О приложении",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Kotlin Koans — это интерактивный тренажёр для изучения языка Kotlin. Решайте задачи, пишите код и сразу видите результат!",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Версия 2.0 • Дипломный проект",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                        )
-                    }
+                // Кнопка выхода
+                TextButton(onClick = onLogoutClick, modifier = Modifier.fillMaxWidth()) {
+                    Text("🚪 Выйти из аккаунта", color = MaterialTheme.colorScheme.error)
                 }
 
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("О приложении", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("Kotlin Koans — это интерактивный тренажёр для изучения языка Kotlin.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Версия 2.0 • Дипломный проект", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+                    }
+                }
                 Spacer(modifier = Modifier.height(32.dp))
             }
         }
@@ -763,14 +822,39 @@ fun ChallengeScreen(
 // ============ НАВИГАЦИЯ ============
 @Composable
 fun AppNavGraph(navController: NavHostController) {
-    NavHost(navController = navController, startDestination = Screen.Home.route) {
+    val authManager = remember { AuthManager() }
+
+    NavHost(
+        navController = navController,
+        startDestination = Screen.Auth.route  // Всегда начинаем с авторизации
+    ) {
+        // Экран авторизации
+        composable(Screen.Auth.route) {
+            AuthScreen(
+                onLoginSuccess = {
+                    // Используем navigate с очисткой стека
+                    navController.navigate(Screen.Home.route) {
+                        popUpTo(Screen.Auth.route) { inclusive = true }
+                    }
+                }
+            )
+        }
+
         // Домашний экран
         composable(Screen.Home.route) {
             HomeScreen(
                 onStartClick = { navController.navigate(Screen.Challenges.route) },
-                onTheoryClick = { navController.navigate(Screen.Theory.route) }
+                onTheoryClick = { navController.navigate(Screen.Theory.route) },
+                onLogoutClick = {
+                    authManager.logout()
+                    navController.navigate(Screen.Auth.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                },
+                viewModel = viewModel()
             )
         }
+
         // Список заданий
         composable(Screen.Challenges.route) {
             ChallengesScreen(
@@ -778,6 +862,7 @@ fun AppNavGraph(navController: NavHostController) {
                 onBackClick = { navController.popBackStack() }
             )
         }
+
         // Экран задания
         composable(
             route = Screen.Challenge.route,
@@ -788,6 +873,7 @@ fun AppNavGraph(navController: NavHostController) {
                 onBackClick = { navController.popBackStack() }
             )
         }
+
         // Список тем теории
         composable(Screen.Theory.route) {
             TheoryListScreen(
@@ -795,6 +881,7 @@ fun AppNavGraph(navController: NavHostController) {
                 onBackClick = { navController.popBackStack() }
             )
         }
+
         // Конкретная тема
         composable(
             route = Screen.TheoryDetail.route,
