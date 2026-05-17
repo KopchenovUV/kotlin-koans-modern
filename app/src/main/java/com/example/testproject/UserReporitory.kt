@@ -9,6 +9,7 @@ data class UserProfile(
     val email: String = "",
     val displayName: String = "",
     val bio: String = "",
+    val avatarUrl: String = "",
     val level: Int = 1,
     val totalSolved: Int = 0,
     val joinDate: Long = System.currentTimeMillis()
@@ -38,6 +39,7 @@ class UserRepository {
                         email = currentUser.email ?: "",
                         displayName = data["displayName"] as? String ?: currentUser.email?.substringBefore("@") ?: "Пользователь",
                         bio = data["bio"] as? String ?: "",
+                        avatarUrl = data["avatarUrl"] as? String ?: "",
                         level = (data["level"] as? Long)?.toInt() ?: 1,
                         totalSolved = (data["totalSolved"] as? Long)?.toInt() ?: 0,
                         joinDate = data["joinDate"] as? Long ?: System.currentTimeMillis()
@@ -61,6 +63,18 @@ class UserRepository {
             } else {
                 Result.failure(e)
             }
+        }
+    }
+
+    // Обновить аватар
+    suspend fun updateAvatar(avatarUrl: String): Result<Unit> {
+        return try {
+            val uid = auth.currentUser?.uid ?: return Result.failure(Exception("Не авторизован"))
+            firestore.collection("users").document(uid)
+                .update("avatarUrl", avatarUrl).await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 

@@ -1,5 +1,8 @@
 package com.example.testproject // ← Твой пакет!
 
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import com.google.firebase.auth.FirebaseAuth
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -234,7 +237,6 @@ fun TheoryDetailScreen(
     }
 }
 
-// ============ ЭКРАН ПРОФИЛЯ ============
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
@@ -255,9 +257,19 @@ fun ProfileScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var operationInProgress by remember { mutableStateOf(false) }
 
+    // Выбор аватарки
+    var showAvatarDialog by remember { mutableStateOf(false) }
+    var selectedAvatar by remember { mutableStateOf(profile?.avatarUrl ?: "") }
+
     val coroutineScope = rememberCoroutineScope()
 
-    // Загрузка профиля
+    // Список доступных аватарок (эмодзи)
+    val avatarOptions = listOf(
+        "👤", "🐱", "🦊", "🐼", "🐨", "🐸", "🦁", "🐯",
+        "🐰", "🐙", "🦄", "🐳", "🦋", "🐉", "🦀", "🐧",
+        "🤖", "👻", "🎃", "🌟", "🔥", "💎", "🎯", "🚀"
+    )
+
     // Загрузка профиля
     LaunchedEffect(Unit) {
         isLoading = true
@@ -266,44 +278,79 @@ fun ProfileScreen(
             result.fold(
                 onSuccess = {
                     profile = it
-                    errorMessage = null
+                    selectedAvatar = it.avatarUrl
                 },
-                onFailure = {
-                    errorMessage = it.message
-                    // Создаём базовый профиль из auth
-                    val user = auth.currentUser
-                    if (user != null) {
-                        profile = UserProfile(
-                            uid = user.uid,
-                            email = user.email ?: "",
-                            displayName = user.email?.substringBefore("@") ?: "Пользователь"
-                        )
-                        errorMessage = null
-                    }
-                }
+                onFailure = { errorMessage = it.message }
             )
         } catch (e: Exception) {
             errorMessage = e.message
-            val user = auth.currentUser
-            if (user != null) {
-                profile = UserProfile(
-                    uid = user.uid,
-                    email = user.email ?: "",
-                    displayName = user.email?.substringBefore("@") ?: "Пользователь"
-                )
-                errorMessage = null
-            }
         }
         isLoading = false
     }
 
-    // Диалог смены пароля
+    // Диалог выбора аватарки
+    if (showAvatarDialog) {
+        AlertDialog(
+            onDismissRequest = { showAvatarDialog = false },
+            title = { Text("Выберите аватар") },
+            text = {
+                Column {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(6),
+                        modifier = Modifier
+                            .height(300.dp)
+                            .fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        items(avatarOptions) { emoji ->
+                            Box(
+                                modifier = Modifier
+                                    .padding(4.dp)
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (selectedAvatar == emoji) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                                        else Color.Transparent
+                                    )
+                                    .clickable { selectedAvatar = emoji },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(emoji, fontSize = 24.sp, textAlign = TextAlign.Center)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    operationInProgress = true
+                    coroutineScope.launch {
+                        val result = userRepository.updateAvatar(selectedAvatar)
+                        result.fold(
+                            onSuccess = {
+                                profile = profile?.copy(avatarUrl = selectedAvatar)
+                                showAvatarDialog = false
+                            },
+                            onFailure = { errorMessage = it.message }
+                        )
+                        operationInProgress = false
+                    }
+                }) {
+                    Text("Сохранить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAvatarDialog = false }) {
+                    Text("Отмена")
+                }
+            }
+        )
+    }
+
+    // Остальные диалоги...
     if (showPasswordDialog) {
         AlertDialog(
-            onDismissRequest = {
-                showPasswordDialog = false
-                newPassword = ""
-            },
+            onDismissRequest = { showPasswordDialog = false; newPassword = "" },
             title = { Text("Сменить пароль") },
             text = {
                 Column {
@@ -318,67 +365,41 @@ fun ProfileScreen(
                 }
             },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        if (newPassword.length < 6) {
-                            errorMessage = "Пароль должен быть не менее 6 символов"
-                            return@TextButton
-                        }
-                        operationInProgress = true
-                        coroutineScope.launch {
-                            val result = userRepository.updatePassword(newPassword)
-                            result.fold(
-                                onSuccess = {
-                                    errorMessage = null
-                                    showPasswordDialog = false
-                                    newPassword = ""
-                                },
-                                onFailure = { errorMessage = "Ошибка: ${it.message}" }
-                            )
-                            operationInProgress = false
-                        }
-                    },
-                    enabled = !operationInProgress
-                ) {
-                    Text("Сменить")
-                }
+                TextButton(onClick = {
+                    if (newPassword.length < 6) {
+                        errorMessage = "Пароль должен быть не менее 6 символов"
+                        return@TextButton
+                    }
+                    operationInProgress = true
+                    coroutineScope.launch {
+                        userRepository.updatePassword(newPassword)
+                        operationInProgress = false
+                        showPasswordDialog = false
+                        newPassword = ""
+                    }
+                }) { Text("Сменить") }
             },
             dismissButton = {
-                TextButton(onClick = {
-                    showPasswordDialog = false
-                    newPassword = ""
-                }) {
-                    Text("Отмена")
-                }
+                TextButton(onClick = { showPasswordDialog = false; newPassword = "" }) { Text("Отмена") }
             }
         )
     }
 
-    // Диалог удаления аккаунта
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
             title = { Text("Удалить аккаунт?") },
-            text = { Text("Это действие нельзя отменить. Все данные будут удалены.") },
+            text = { Text("Это действие нельзя отменить.") },
             confirmButton = {
                 TextButton(onClick = {
-                    operationInProgress = true
                     coroutineScope.launch {
-                        val result = userRepository.deleteAccount()
-                        result.fold(
-                            onSuccess = { onLogoutClick() },
-                            onFailure = { errorMessage = "Ошибка: ${it.message}" }
-                        )
-                        operationInProgress = false
+                        userRepository.deleteAccount()
+                        onLogoutClick()
                     }
-                }) {
-                    Text("Удалить", color = MaterialTheme.colorScheme.error)
-                }
+                }) { Text("Удалить", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("Отмена")
-                }
+                TextButton(onClick = { showDeleteDialog = false }) { Text("Отмена") }
             }
         )
     }
@@ -399,25 +420,31 @@ fun ProfileScreen(
             )
         }
     ) { paddingValues ->
-        Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
-            if (isLoading) {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-            } else if (profile != null) {
-                Column(
+        if (isLoading) {
+            Box(modifier = Modifier.fillMaxSize().padding(paddingValues), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        } else if (profile != null) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp)
+            ) {
+                // Аватар (кликабельный)
+                Box(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(16.dp)
+                        .size(100.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                        .clickable { showAvatarDialog = true }
+                        .align(Alignment.CenterHorizontally),
+                    contentAlignment = Alignment.Center
                 ) {
-                    // Аватар
-                    Box(
-                        modifier = Modifier
-                            .size(100.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
-                            .align(Alignment.CenterHorizontally),
-                        contentAlignment = Alignment.Center
-                    ) {
+                    if (profile!!.avatarUrl.isNotEmpty()) {
+                        Text(profile!!.avatarUrl, fontSize = 40.sp)
+                    } else {
                         Text(
                             text = profile!!.displayName.firstOrNull()?.uppercase() ?: "?",
                             fontSize = 40.sp,
@@ -425,173 +452,117 @@ fun ProfileScreen(
                             color = MaterialTheme.colorScheme.primary
                         )
                     }
+                }
 
-                    Spacer(modifier = Modifier.height(24.dp))
+                Text(
+                    "Сменить аватар",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .padding(top = 4.dp)
+                )
 
-                    if (isEditing) {
-                        // Режим редактирования
-                        OutlinedTextField(
-                            value = editName,
-                            onValueChange = { editName = it },
-                            label = { Text("Имя") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Информация
+                Text(
+                    text = profile!!.displayName,
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                )
+                Text(
+                    text = profile!!.email,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                )
+
+                if (profile!!.bio.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                        Text(profile!!.bio, modifier = Modifier.padding(16.dp))
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Статистика
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("Статистика", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         Spacer(modifier = Modifier.height(12.dp))
-                        OutlinedTextField(
-                            value = editBio,
-                            onValueChange = { editBio = it },
-                            label = { Text("О себе") },
-                            maxLines = 3,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(
-                                onClick = {
-                                    operationInProgress = true
-                                    coroutineScope.launch {
-                                        val result = userRepository.updateProfile(editName, editBio)
-                                        result.fold(
-                                            onSuccess = {
-                                                profile = profile!!.copy(displayName = editName, bio = editBio)
-                                                isEditing = false
-                                            },
-                                            onFailure = { errorMessage = "Ошибка: ${it.message}" }
-                                        )
-                                        operationInProgress = false
-                                    }
-                                },
-                                enabled = !operationInProgress
-                            ) {
-                                Text("Сохранить")
-                            }
-                            OutlinedButton(onClick = { isEditing = false }) {
-                                Text("Отмена")
-                            }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                            StatItem(value = "${profile!!.level}", label = "Уровень", emoji = "⭐")
+                            StatItem(value = "${profile!!.totalSolved}", label = "Решено", emoji = "✅")
+                            StatItem(value = "0", label = "Достижения", emoji = "🏆")
                         }
-                    } else {
-                        // Режим просмотра
-                        Text(
-                            text = profile!!.displayName,
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.align(Alignment.CenterHorizontally)
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = profile!!.email,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                            modifier = Modifier.align(Alignment.CenterHorizontally)
-                        )
-
-                        if (profile!!.bio.isNotBlank()) {
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                            ) {
-                                Text(profile!!.bio, modifier = Modifier.padding(16.dp))
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        // Статистика
-                        Card(modifier = Modifier.fillMaxWidth()) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Text("Статистика", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                                    StatItem(value = "${profile!!.level}", label = "Уровень", emoji = "⭐")
-                                    StatItem(value = "${profile!!.totalSolved}", label = "Решено", emoji = "✅")
-                                    StatItem(value = "0", label = "Достижения", emoji = "🏆")
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(24.dp))
-
-                        // Кнопки действий
-                        OutlinedButton(
-                            onClick = {
-                                editName = profile!!.displayName
-                                editBio = profile!!.bio
-                                isEditing = true
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Default.Edit, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Редактировать профиль")
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        OutlinedButton(
-                            onClick = { showPasswordDialog = true },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Default.Lock, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Сменить пароль")
-                        }
-
-                        Spacer(modifier = Modifier.height(24.dp))
-
-                        Text(
-                            text = "Управление аккаунтом",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.error
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        OutlinedButton(
-                            onClick = onLogoutClick,
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                        ) {
-                            Icon(Icons.Default.Logout, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Выйти из аккаунта")
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        TextButton(
-                            onClick = { showDeleteDialog = true },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Удалить аккаунт", color = MaterialTheme.colorScheme.error)
-                        }
-                    }
-
-                    if (errorMessage != null) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(text = errorMessage!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                    }
-
-                    Spacer(modifier = Modifier.height(32.dp))
-                }
-            } else {
-                Column(
-                    modifier = Modifier.align(Alignment.Center),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text("😕", fontSize = 48.sp)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("Не удалось загрузить профиль", style = MaterialTheme.typography.bodyLarge)
-                    if (errorMessage != null) {
-                        Text(errorMessage!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                    }
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Button(onClick = onBackClick) {
-                        Text("Назад")
                     }
                 }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Кнопки
+                OutlinedButton(onClick = {
+                    editName = profile!!.displayName
+                    editBio = profile!!.bio
+                    isEditing = true
+                }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.Edit, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Редактировать профиль")
+                }
+
+                if (isEditing) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(value = editName, onValueChange = { editName = it }, label = { Text("Имя") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(value = editBio, onValueChange = { editBio = it }, label = { Text("О себе") }, maxLines = 3, modifier = Modifier.fillMaxWidth())
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = {
+                            coroutineScope.launch {
+                                userRepository.updateProfile(editName, editBio)
+                                profile = profile?.copy(displayName = editName, bio = editBio)
+                                isEditing = false
+                            }
+                        }) { Text("Сохранить") }
+                        OutlinedButton(onClick = { isEditing = false }) { Text("Отмена") }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedButton(onClick = { showPasswordDialog = true }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.Lock, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Сменить пароль")
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Text("Управление аккаунтом", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedButton(onClick = onLogoutClick, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                    Icon(Icons.Default.Logout, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Выйти из аккаунта")
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                TextButton(onClick = { showDeleteDialog = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Удалить аккаунт", color = MaterialTheme.colorScheme.error)
+                }
+
+                if (errorMessage != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(errorMessage!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+
+                Spacer(modifier = Modifier.height(32.dp))
             }
         }
     }
@@ -1147,27 +1118,44 @@ fun ChallengeScreen(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = {
-                        coroutineScope.launch {
-                            output = "Выполняется..."
-                            val result = withContext(Dispatchers.IO) {
-                                codeState.text.lines().filter { it.contains("println(") }
-                                    .joinToString("\n") { it.substringAfter("println(").substringBefore(")").replace("\"", "") }
-                            }
-                            val expected = challenge.expectedOutput.replace("\"", "").trim()
-                            if (result.trim() == expected) {
-                                viewModel.markSolved(challengeId)
-                                // Отправляем обновлённую статистику в Firestore
-                                coroutineScope.launch {
+                    Button(
+                        onClick = {
+                            coroutineScope.launch {
+                                output = "Выполняется..."
+                                val result = withContext(Dispatchers.IO) {
+                                    // Извлекаем всё, что внутри println()
+                                    codeState.text
+                                        .lines()
+                                        .filter { it.contains("println(") }
+                                        .joinToString("\n") { line ->
+                                            line.substringAfter("println(")
+                                                .substringBeforeLast(")")
+                                                .trim()
+                                                .removeSurrounding("\"")
+                                        }
+                                }
+                                val expected = challenge.expectedOutput.trim()
+
+                                // Очищаем результат и ожидаемый вывод
+                                val resultClean = result.trim().replace("\r\n", "\n").replace("\r", "\n")
+                                val expectedClean = expected.trim().replace("\r\n", "\n").replace("\r", "\n")
+
+                                if (resultClean.equals(expectedClean, ignoreCase = true) ||
+                                    resultClean.replace(" ", "") == expectedClean.replace(" ", "")) {
+                                    viewModel.markSolved(challengeId)
+                                    // Синхронизируем с Firestore
                                     val userRepository = UserRepository()
                                     val solvedCount = viewModel.getSolvedCount()
-                                    val level = (solvedCount / 5) + 1  // Уровень каждые 5 задач
+                                    val level = (solvedCount / 5) + 1
                                     userRepository.updateStats(level, solvedCount)
+                                    output = "✅ Успех!\n\nВывод:\n$result"
+                                } else {
+                                    output = "❌ Ожидалось:\n${challenge.expectedOutput}\n\nПолучено:\n$result"
                                 }
-                                output = "✅ Успех!\n\nВывод:\n$result"
                             }
-                        }
-                    }, modifier = Modifier.weight(1f)) {
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
                         Icon(Icons.Default.PlayArrow, contentDescription = null)
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("Запустить")
