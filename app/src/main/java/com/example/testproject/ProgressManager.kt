@@ -3,12 +3,6 @@ package com.example.testproject // ← Твой пакет!
 import android.content.Context
 import android.content.SharedPreferences
 
-/**
- * Менеджер прогресса пользователя.
- * Сохраняет:
- * - Какие задачи решены
- * - Код, который пользователь написал для каждой задачи
- */
 class ProgressManager(context: Context) {
 
     private val prefs: SharedPreferences = context.getSharedPreferences("koans_progress", Context.MODE_PRIVATE)
@@ -32,6 +26,18 @@ class ProgressManager(context: Context) {
             }
         }
         return count
+    }
+
+    // Получить список ID решённых задач
+    fun getSolvedIds(): List<Int> {
+        val ids = mutableListOf<Int>()
+        prefs.all.keys.forEach { key ->
+            if (key.startsWith("solved_") && prefs.getBoolean(key, false)) {
+                val id = key.removePrefix("solved_").toIntOrNull()
+                if (id != null) ids.add(id)
+            }
+        }
+        return ids
     }
 
     // Сохранить код пользователя для задачи

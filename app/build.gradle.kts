@@ -53,6 +53,9 @@ dependencies {
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-firestore-ktx")
 
+    //Для профиля
+    implementation("com.google.firebase:firebase-firestore-ktx")
+
     //Навигация
     implementation("androidx.navigation:navigation-compose:2.7.7")
 
@@ -61,6 +64,9 @@ dependencies {
 
     // Иконки (Material Icons Extended) — пригодятся для красоты
     implementation("androidx.compose.material:material-icons-extended")
+
+    //Для Компилятора
+
 
     // Тестирование
     testImplementation(libs.junit)
