@@ -5,6 +5,8 @@ import java.io.PrintStream
 
 object KotlinCompiler {
 
+
+
     fun executeCode(code: String): String {
         val originalOut = System.out
         val originalErr = System.err
@@ -32,6 +34,42 @@ object KotlinCompiler {
 }
 
 class SimpleInterpreter {
+
+    /**
+     * Находит конец всего if/else блока (включая else если есть)
+     */
+    private fun findFullIfElseEnd(lines: List<String>, startIndex: Int): Int {
+        var depth = 0
+        var foundElse = false
+
+        for (i in startIndex until lines.size) {
+            val line = lines[i]
+
+            for (j in line.indices) {
+                when (line[j]) {
+                    '{' -> depth++
+                    '}' -> {
+                        depth--
+                        if (depth == 0) {
+                            // Проверяем, есть ли else после этой }
+                            val after = line.substring(j + 1).trim()
+                            if (after.startsWith("else") && after.contains('{')) {
+                                // Есть else блок — продолжаем
+                                depth = 1
+                                foundElse = true
+                            } else {
+                                // Нет else — это конец
+                                return i
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return lines.size - 1
+    }
+
     private val variables = mutableMapOf<String, Any?>()
 
     fun execute(code: String) {
@@ -58,6 +96,7 @@ class SimpleInterpreter {
                 val content = extractParens(line, "println(")
                 val value = eval(content)
                 println(value)
+                return index + 1
             }
 
             // ========== val / var ==========
@@ -70,9 +109,9 @@ class SimpleInterpreter {
                     val valueStr = rest.substring(eqIndex + 1).trim()
                     variables[name] = eval(valueStr)
                 }
+                return index + 1
             }
 
-            // ========== for ==========
             // ========== for ==========
             line.startsWith("for (") -> {
                 val header = extractParens(line, "for (")
@@ -85,18 +124,18 @@ class SimpleInterpreter {
                         val start = eval(rangeParts[0])?.toString()?.toIntOrNull() ?: 0
                         val end = eval(rangeParts[1])?.toString()?.toIntOrNull() ?: 0
 
-                        val bodyLines = collectBlock(lines, index)
-                        val linesUsed = bodyLines.size
-                        val innerLines = extractInnerLines(bodyLines)
+                        val endIndex = findBlockEnd(lines, index)
+                        val innerLines = getBlockContent(lines, index, endIndex)
 
                         for (value in start..end) {
                             variables[varName] = value
                             executeLines(innerLines)
                         }
 
-                        return index + linesUsed
+                        return endIndex + 1
                     }
                 }
+                return index + 1
             }
 
             // ========== if / else ==========
@@ -110,124 +149,131 @@ class SimpleInterpreter {
                     else -> true
                 }
 
-                // Собираем блок if
-                val ifBlock = collectBlock(lines, index)
-                val ifInner = extractInnerLines(ifBlock)
-                var totalLines = ifBlock.size
+                val blockEnd = findFullIfElseEnd(lines, index)
+                val ifInner = mutableListOf<String>()
+                val elseInner = mutableListOf<String>()
+                var inElse = false
 
-                // Проверяем else
-                val elseStart = index + totalLines
-                var elseInner = emptyList<String>()
+                for (i in index..blockEnd) {
+                    val l = lines[i]
 
-                if (elseStart < lines.size) {
-                    val elseLine = lines[elseStart]
-                    if (elseLine.startsWith("else {")) {
-                        val elseBlock = collectBlock(lines, elseStart)
-                        elseInner = extractInnerLines(elseBlock)
-                        totalLines += elseBlock.size
-                    } else if (elseLine.startsWith("else ")) {
-                        elseInner = listOf(elseLine.removePrefix("else ").trim())
-                        totalLines += 1
+                    if (i == index) {
+                        val braceIdx = l.indexOf('{')
+                        if (braceIdx >= 0) {
+                            val after = l.substring(braceIdx + 1).trim()
+                            if (after.isNotEmpty()) {
+                                ifInner.add(after)
+                            }
+                        }
+                    } else if (l.trim().startsWith("} else {") || l.trim() == "} else {" || l.trim().startsWith("else {")) {
+                        inElse = true
+                        val afterElse = l.trim().removePrefix("} else {").removePrefix("else {").trim()
+                        if (afterElse.isNotEmpty() && afterElse != "}") {
+                            elseInner.add(afterElse)
+                        }
+                    } else if (l.trim() == "}") {
+                        continue
+                    } else if (inElse) {
+                        val clean = l.trim()
+                        if (clean != "}" && clean.isNotEmpty()) {
+                            elseInner.add(clean)
+                        }
+                    } else {
+                        val clean = l.trim()
+                        if (clean != "}" && clean.isNotEmpty()) {
+                            ifInner.add(clean)
+                        }
                     }
                 }
 
-                // Выполняем только одну ветку
                 if (condBool) {
                     executeLines(ifInner)
                 } else if (elseInner.isNotEmpty()) {
                     executeLines(elseInner)
                 }
 
-                return index + totalLines
+                return blockEnd + 1
             }
         }
 
         return index + 1
     }
 
-    /**
-     * Собирает все строки блока (включая открывающую строку и закрывающую скобку)
-     * Например, для if (...) { ... } вернёт [if (...) {, ..., }]
-     */
-
-    private fun collectBlock(lines: List<String>, startIndex: Int): List<String> {
-        val result = mutableListOf<String>()
+    private fun findBlockEnd(lines: List<String>, startIndex: Int): Int {
         var depth = 0
-        var started = false
 
         for (i in startIndex until lines.size) {
-            val line = lines[i]
-            result.add(line)
+            val currentLine = lines[i]
 
-            for (ch in line) {
-                when (ch) {
-                    '{' -> {
-                        depth++
-                        started = true
+            for (j in currentLine.indices) {
+                when (currentLine[j]) {
+                    '{' -> depth++
+                    '}' -> {
+                        depth--
+                        if (depth == 0) {
+                            // Проверяем, что после } нет { (как в "} else {")
+                            val afterBrace = currentLine.substring(j + 1).trim()
+                            if (afterBrace.startsWith("else") && afterBrace.contains('{')) {
+                                // Это "} else {" — блок НЕ закончился
+                                depth = 1
+                            } else {
+                                return i
+                            }
+                        }
                     }
-                    '}' -> depth--
                 }
-            }
-
-            if (started && depth == 0) {
-                break
             }
         }
 
-        return result
+        return lines.size - 1
     }
 
-    /**
-     * Извлекает внутренние строки блока (без скобок)
-     */
-    private fun extractInnerLines(block: List<String>): List<String> {
-        if (block.isEmpty()) return emptyList()
+    private fun getBlockContent(lines: List<String>, startIndex: Int, endIndex: Int): List<String> {
+        val content = mutableListOf<String>()
 
-        val inner = mutableListOf<String>()
+        for (i in startIndex..endIndex) {
+            val line = lines[i]
 
-        // Обрабатываем первую строку
-        val firstLine = block.first()
-        val firstBraceIndex = firstLine.indexOf('{')
-        if (firstBraceIndex >= 0) {
-            val afterFirstBrace = firstLine.substring(firstBraceIndex + 1).trim()
-            if (afterFirstBrace.isNotEmpty() && afterFirstBrace != "}") {
-                inner.add(afterFirstBrace)
-            }
-        }
-
-        // Если блок состоит из одной строки: if (x) { println("yes") }
-        if (block.size == 1) {
-            val closeBraceIndex = firstLine.lastIndexOf('}')
-            if (closeBraceIndex > firstBraceIndex) {
-                val content = firstLine.substring(firstBraceIndex + 1, closeBraceIndex).trim()
-                if (content.isNotEmpty()) {
-                    return listOf(content)
+            if (i == startIndex) {
+                val braceIdx = line.indexOf('{')
+                if (braceIdx >= 0) {
+                    var after = line.substring(braceIdx + 1).trim()
+                    // Убираем } если она есть в той же строке
+                    val closeIdx = after.indexOf('}')
+                    if (closeIdx >= 0) {
+                        after = after.substring(0, closeIdx).trim()
+                    }
+                    if (after.isNotEmpty()) {
+                        content.add(after)
+                    }
                 }
-            }
-            return inner
-        }
-
-        // Средние строки
-        for (i in 1 until block.size - 1) {
-            val line = block[i].trim()
-            if (line.isNotEmpty() && line != "{" && line != "}") {
-                inner.add(line)
-            }
-        }
-
-        // Последняя строка
-        if (block.size >= 2) {
-            val lastLine = block.last()
-            val closeBraceIndex = lastLine.indexOf('}')
-            if (closeBraceIndex > 0) {
-                val beforeClose = lastLine.substring(0, closeBraceIndex).trim()
-                if (beforeClose.isNotEmpty()) {
-                    inner.add(beforeClose)
+            } else if (i == endIndex) {
+                val braceIdx = line.indexOf('}')
+                if (braceIdx > 0) {
+                    var before = line.substring(0, braceIdx).trim()
+                    // Убираем else если есть
+                    if (before.startsWith("else {")) {
+                        before = before.removePrefix("else {").trim()
+                    }
+                    if (before.isNotEmpty()) {
+                        content.add(before)
+                    }
+                }
+            } else {
+                var cleanLine = line
+                // Пропускаем строки, которые являются частью else
+                if (cleanLine.trimStart().startsWith("else {")) {
+                    cleanLine = cleanLine.trimStart().removePrefix("else {").trim()
+                }
+                if (cleanLine == "}") continue
+                if (cleanLine.startsWith("} else")) continue
+                if (cleanLine.isNotEmpty()) {
+                    content.add(cleanLine)
                 }
             }
         }
 
-        return inner
+        return content
     }
 
     private fun extractParens(line: String, prefix: String): String {
