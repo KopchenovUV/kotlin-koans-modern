@@ -65,9 +65,6 @@ dependencies {
     // Иконки (Material Icons Extended) — пригодятся для красоты
     implementation("androidx.compose.material:material-icons-extended")
 
-    //Для Компилятора
-
-
     // Тестирование
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

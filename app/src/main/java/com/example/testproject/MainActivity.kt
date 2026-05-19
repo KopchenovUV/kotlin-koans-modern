@@ -1,5 +1,8 @@
 package com.example.testproject // ← Твой пакет!
 
+import kotlinx.coroutines.delay
+import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -27,6 +30,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
@@ -69,7 +73,10 @@ private val DarkColors = darkColorScheme(
 )
 
 @Composable
-fun AppTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
+fun AppTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    content: @Composable () -> Unit
+) {
     MaterialTheme(
         colorScheme = if (darkTheme) DarkColors else LightColors,
         typography = MaterialTheme.typography,
@@ -91,6 +98,7 @@ sealed class Screen(val route: String) {
     object TheoryDetail : Screen("theory/{topicId}") {
         fun createRoute(topicId: Int) = "theory/$topicId"
     }
+    object Achievements : Screen("achievements")
     object Sandbox : Screen("sandbox")
 }
 
@@ -714,24 +722,37 @@ fun HomeScreen(
     onTheoryClick: () -> Unit,
     onProfileClick: () -> Unit,
     onSandboxClick: () -> Unit,
+    onAchievementsClick: () -> Unit,
+    isDarkMode: Boolean,
+    onToggleTheme: () -> Unit,
     viewModel: MainViewModel = viewModel()
 ) {
+    val context = LocalContext.current
+    val achievementsManager = remember { AchievementsManager(context) }
     val solvedCount = viewModel.getSolvedCount()
     val totalCount = viewModel.getTotalCount()
     val progressPercent = viewModel.getProgressPercent()
 
     Box(modifier = Modifier.fillMaxSize()) {
+        // Фон для всего экрана
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+        )
+
+        // Фоновый градиент
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.55f)
+                .fillMaxHeight(if (isDarkMode) 0.9f else 0.9f)
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
                             MaterialTheme.colorScheme.primary,
-                            MaterialTheme.colorScheme.primary,
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
-                            MaterialTheme.colorScheme.background
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                            Color.Transparent
                         ),
                         startY = 0f,
                         endY = Float.POSITIVE_INFINITY
@@ -750,10 +771,27 @@ fun HomeScreen(
             ) {
                 Spacer(modifier = Modifier.height(48.dp))
 
-                // Кнопка профиля в правом верхнем углу
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                // Кнопка профиля и темы в правом верхнем углу
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onToggleTheme) {
+                        Icon(
+                            if (isDarkMode) Icons.Default.LightMode else Icons.Default.DarkMode,
+                            contentDescription = "Сменить тему",
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
                     IconButton(onClick = onProfileClick) {
-                        Icon(Icons.Default.Person, contentDescription = "Профиль", tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(32.dp))
+                        Icon(
+                            Icons.Default.Person,
+                            contentDescription = "Профиль",
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(32.dp)
+                        )
                     }
                 }
 
@@ -794,17 +832,20 @@ fun HomeScreen(
 
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                 HomeButton(icon = Icons.Default.Code, title = "Задания", subtitle = "$totalCount интерактивных задач", color = MaterialTheme.colorScheme.primary, onClick = onStartClick)
+
                 Spacer(modifier = Modifier.height(12.dp))
+
                 HomeButton(icon = Icons.Default.MenuBook, title = "Теория", subtitle = "Основы языка Kotlin", color = Color(0xFF1565C0), onClick = onTheoryClick)
+
                 Spacer(modifier = Modifier.height(12.dp))
-                // Кнопка "Песочница" вместо "Достижения"
-                HomeButton(
-                    icon = Icons.Default.Terminal,
-                    title = "Песочница",
-                    subtitle = "Пишите и запускайте код",
-                    color = Color(0xFF7C4DFF),
-                    onClick = onSandboxClick
-                )
+
+                HomeButton(icon = Icons.Default.Terminal, title = "Песочница", subtitle = "Пишите и запускайте код", color = Color(0xFF7C4DFF), onClick = onSandboxClick)
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                HomeButton(icon = Icons.Default.EmojiEvents, title = "Достижения", subtitle = "${achievementsManager.getUnlockedCount()} из ${achievementsManager.getTotalCount()} получено", color = Color(0xFFE65100), onClick = onAchievementsClick)
+
+                Spacer(modifier = Modifier.height(24.dp))
 
                 Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
                     Column(modifier = Modifier.padding(16.dp)) {
@@ -815,6 +856,7 @@ fun HomeScreen(
                         Text("Версия 2.0 • Дипломный проект", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
                     }
                 }
+
                 Spacer(modifier = Modifier.height(32.dp))
             }
         }
@@ -1082,6 +1124,8 @@ fun ChallengeScreen(
     onBackClick: () -> Unit,
     viewModel: MainViewModel = viewModel()
 ) {
+    var showConfetti by remember { mutableStateOf(false) }
+    val context = LocalContext.current
     val challenge = viewModel.getChallengeById(challengeId)
     val savedCode = viewModel.getSavedCode(challengeId)
     var codeState by remember { mutableStateOf(TextFieldValue(savedCode ?: challenge?.initialCode ?: "")) }
@@ -1140,15 +1184,29 @@ fun ChallengeScreen(
                                 val resultClean = result.trim().replace("\r\n", "\n").replace("\r", "\n")
                                 val expectedClean = expected.trim().replace("\r\n", "\n").replace("\r", "\n")
 
-                                if (resultClean.equals(expectedClean, ignoreCase = true) ||
-                                    resultClean.replace(" ", "") == expectedClean.replace(" ", "")) {
+                                if (resultClean == expectedClean) {
                                     viewModel.markSolved(challengeId)
-                                    // Синхронизируем с Firestore
-                                    val userRepository = UserRepository()
+
+                                    showConfetti = true  // Включаем конфетти
+
                                     val solvedCount = viewModel.getSolvedCount()
                                     val level = (solvedCount / 5) + 1
+
+                                    // Проверяем достижения
+                                    val achievementsManager = AchievementsManager(context)
+                                    val newAchievements = achievementsManager.checkAndUnlock(solvedCount)
+
+                                    // Синхронизируем с Firestore
+                                    val userRepository = UserRepository()
                                     userRepository.updateStats(level, solvedCount)
+
                                     output = "✅ Успех!\n\nВывод:\n$result"
+                                    if (newAchievements.isNotEmpty()) {
+                                        output += "\n\n🎉 Новые достижения:"
+                                        newAchievements.forEach { ach ->
+                                            output += "\n${ach.emoji} ${ach.title}"
+                                        }
+                                    }
                                 } else {
                                     output = "❌ Ожидалось:\n${challenge.expectedOutput}\n\nПолучено:\n$result"
                                 }
@@ -1192,10 +1250,112 @@ fun ChallengeScreen(
                     }
                 }
             } else Text("Задание не найдено")
+
+        }
+        // Анимация конфетти
+        ConfettiAnimation(
+            isVisible = showConfetti,
+            onFinished = { showConfetti = false }
+        )
+    }
+
+}
+// ============ ЭКРАН ДОСТИЖЕНИЙ ============
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AchievementsScreen(
+    onBackClick: () -> Unit
+) {
+    val context = LocalContext.current
+    val achievementsManager = remember { AchievementsManager(context) }
+    val unlocked = remember { achievementsManager.getUnlockedAchievements() }
+    val allAchievements = remember { achievementsManager.achievements }
+    val unlockedIds = remember { unlocked.map { it.id }.toSet() }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Достижения") },
+                navigationIcon = {
+                    TextButton(onClick = onBackClick) {
+                        Text("← Назад", color = MaterialTheme.colorScheme.onPrimary)
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color(0xFFE65100),
+                    titleContentColor = Color.White
+                )
+            )
+        }
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp)
+        ) {
+            // Прогресс
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Прогресс достижений", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        progress = { unlocked.size.toFloat() / allAchievements.size },
+                        modifier = Modifier.fillMaxWidth(),
+                        color = Color(0xFFE65100)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("${unlocked.size} из ${allAchievements.size}", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Список достижений
+            allAchievements.forEach { achievement ->
+                val isUnlocked = achievement.id in unlockedIds
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isUnlocked) MaterialTheme.colorScheme.surface
+                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (isUnlocked) achievement.emoji else "🔒",
+                            fontSize = 32.sp
+                        )
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = achievement.title,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = if (isUnlocked) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isUnlocked) MaterialTheme.colorScheme.onSurface
+                                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                            )
+                            Text(
+                                text = achievement.description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }
-
 // ============ ЭКРАН ПЕСОЧНИЦЫ (КОМПИЛЯТОР) ============
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1353,13 +1513,13 @@ fun SandboxScreen(
 
 // ============ НАВИГАЦИЯ ============
 @Composable
-fun AppNavGraph(navController: NavHostController) {
+fun AppNavGraph(navController: NavHostController,
+                isDarkMode: Boolean,
+                onToggleTheme: () -> Unit) {
     val authManager = remember { AuthManager() }
 
-    NavHost(
-        navController = navController,
-        startDestination = Screen.Auth.route
-    ) {
+
+    NavHost(navController = navController, startDestination = Screen.Auth.route) {
         composable(Screen.Auth.route) {
             AuthScreen(
                 onLoginSuccess = {
@@ -1376,6 +1536,9 @@ fun AppNavGraph(navController: NavHostController) {
                 onTheoryClick = { navController.navigate(Screen.Theory.route) },
                 onProfileClick = { navController.navigate(Screen.Profile.route) },
                 onSandboxClick = { navController.navigate(Screen.Sandbox.route) },
+                onAchievementsClick = { navController.navigate(Screen.Achievements.route) },
+                isDarkMode = isDarkMode,
+                onToggleTheme = onToggleTheme,
                 viewModel = viewModel()
             )
         }
@@ -1391,16 +1554,12 @@ fun AppNavGraph(navController: NavHostController) {
                 }
             )
         }
-
-        // Список заданий
         composable(Screen.Challenges.route) {
             ChallengesScreen(
                 onChallengeClick = { id -> navController.navigate(Screen.Challenge.createRoute(id)) },
                 onBackClick = { navController.popBackStack() }
             )
         }
-
-        // Экран задания
         composable(
             route = Screen.Challenge.route,
             arguments = listOf(navArgument("challengeId") { type = NavType.IntType })
@@ -1410,16 +1569,12 @@ fun AppNavGraph(navController: NavHostController) {
                 onBackClick = { navController.popBackStack() }
             )
         }
-
-        // Список тем теории
         composable(Screen.Theory.route) {
             TheoryListScreen(
                 onTopicClick = { id -> navController.navigate(Screen.TheoryDetail.createRoute(id)) },
                 onBackClick = { navController.popBackStack() }
             )
         }
-
-        // Конкретная тема
         composable(
             route = Screen.TheoryDetail.route,
             arguments = listOf(navArgument("topicId") { type = NavType.IntType })
@@ -1429,9 +1584,11 @@ fun AppNavGraph(navController: NavHostController) {
                 onBackClick = { navController.popBackStack() }
             )
         }
-
         composable(Screen.Sandbox.route) {
             SandboxScreen(onBackClick = { navController.popBackStack() })
+        }
+        composable(Screen.Achievements.route) {
+            AchievementsScreen(onBackClick = { navController.popBackStack() })
         }
     }
 }
@@ -1440,10 +1597,27 @@ fun AppNavGraph(navController: NavHostController) {
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        val prefs = getSharedPreferences("settings", MODE_PRIVATE)
+        val systemDarkMode = resources.configuration.uiMode and
+                android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
+                android.content.res.Configuration.UI_MODE_NIGHT_YES
+
         setContent {
-            AppTheme {
+            var darkMode by remember {
+                mutableStateOf(prefs.getBoolean("dark_mode", systemDarkMode))
+            }
+
+            AppTheme(darkTheme = darkMode) {
                 val navController = rememberNavController()
-                AppNavGraph(navController = navController)
+                AppNavGraph(
+                    navController = navController,
+                    isDarkMode = darkMode,
+                    onToggleTheme = {
+                        darkMode = !darkMode
+                        prefs.edit().putBoolean("dark_mode", darkMode).apply()
+                    }
+                )
             }
         }
     }
