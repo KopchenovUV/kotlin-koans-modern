@@ -1,5 +1,14 @@
 package com.example.testproject // ← Твой пакет!
 
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.activity.result.contract.ActivityResultContracts
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import androidx.work.*
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.delay
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.DarkMode
@@ -100,6 +109,7 @@ sealed class Screen(val route: String) {
     }
     object Achievements : Screen("achievements")
     object Sandbox : Screen("sandbox")
+    object Leaderboard : Screen("leaderboard")
 }
 
 
@@ -585,7 +595,6 @@ fun StatItem(value: String, label: String, emoji: String) {
 }
 
 // ============ ЭКРАН АВТОРИЗАЦИИ ============
-// ============ ЭКРАН АВТОРИЗАЦИИ ============
 @Composable
 fun AuthScreen(
     onLoginSuccess: () -> Unit
@@ -723,6 +732,7 @@ fun HomeScreen(
     onProfileClick: () -> Unit,
     onSandboxClick: () -> Unit,
     onAchievementsClick: () -> Unit,
+    onLeaderboardClick: () -> Unit,
     isDarkMode: Boolean,
     onToggleTheme: () -> Unit,
     viewModel: MainViewModel = viewModel()
@@ -844,6 +854,10 @@ fun HomeScreen(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 HomeButton(icon = Icons.Default.EmojiEvents, title = "Достижения", subtitle = "${achievementsManager.getUnlockedCount()} из ${achievementsManager.getTotalCount()} получено", color = Color(0xFFE65100), onClick = onAchievementsClick)
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                HomeButton(icon = Icons.Default.Leaderboard, title = "Топ игроков", subtitle = "Рейтинг по задачам", color = Color(0xFFFF6F00), onClick = onLeaderboardClick)
 
                 Spacer(modifier = Modifier.height(24.dp))
 
@@ -1511,6 +1525,142 @@ fun SandboxScreen(
     }
 }
 
+// ============ ЭКРАН ТОПА ИГРОКОВ ============
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun LeaderboardScreen(
+    onBackClick: () -> Unit
+) {
+    val repository = remember { LeaderboardRepository() }
+    var users by remember { mutableStateOf<List<LeaderboardUser>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        val result = repository.getTopUsers()
+        result.fold(
+            onSuccess = { users = it },
+            onFailure = { errorMessage = it.message }
+        )
+        isLoading = false
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("🏆 Топ игроков") },
+                navigationIcon = {
+                    TextButton(onClick = onBackClick) {
+                        Text("← Назад", color = MaterialTheme.colorScheme.onPrimary)
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color(0xFFFF6F00),
+                    titleContentColor = Color.White
+                )
+            )
+        }
+    ) { paddingValues ->
+        if (isLoading) {
+            Box(modifier = Modifier.fillMaxSize().padding(paddingValues), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = Color(0xFFFF6F00))
+            }
+        } else if (errorMessage != null) {
+            Box(modifier = Modifier.fillMaxSize().padding(paddingValues), contentAlignment = Alignment.Center) {
+                Text("Ошибка: $errorMessage")
+            }
+        } else if (users.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize().padding(paddingValues), contentAlignment = Alignment.Center) {
+                Text("Пока никто не решил ни одной задачи 😢")
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(paddingValues).padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                itemsIndexed(users) { index, user ->
+                    LeaderboardCard(rank = index + 1, user = user)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun LeaderboardCard(rank: Int, user: LeaderboardUser) {
+    val rankEmoji = when (rank) {
+        1 -> "🥇"
+        2 -> "🥈"
+        3 -> "🥉"
+        else -> "#$rank"
+    }
+
+    val backgroundColor = when (rank) {
+        1 -> Color(0xFFFFF3E0)
+        2 -> Color(0xFFF5F5F5)
+        3 -> Color(0xFFFFF8E1)
+        else -> MaterialTheme.colorScheme.surface
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = backgroundColor)
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Ранг
+            Text(
+                text = rankEmoji,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold
+            )
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // Аватар
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFE0E0E0)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = if (user.avatarUrl.isNotEmpty()) user.avatarUrl
+                    else user.displayName.firstOrNull()?.uppercase() ?: "?",
+                    fontSize = 18.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // Имя и статистика
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = user.displayName,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = if (rank <= 3) FontWeight.Bold else FontWeight.Normal
+                )
+                Text(
+                    text = "⭐ Уровень ${user.level}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+            }
+
+            // Решено задач
+            Text(
+                text = "✅ ${user.totalSolved}",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF4CAF50)
+            )
+        }
+    }
+}
+
 // ============ НАВИГАЦИЯ ============
 @Composable
 fun AppNavGraph(navController: NavHostController,
@@ -1537,6 +1687,7 @@ fun AppNavGraph(navController: NavHostController,
                 onProfileClick = { navController.navigate(Screen.Profile.route) },
                 onSandboxClick = { navController.navigate(Screen.Sandbox.route) },
                 onAchievementsClick = { navController.navigate(Screen.Achievements.route) },
+                onLeaderboardClick = { navController.navigate(Screen.Leaderboard.route) },
                 isDarkMode = isDarkMode,
                 onToggleTheme = onToggleTheme,
                 viewModel = viewModel()
@@ -1590,6 +1741,9 @@ fun AppNavGraph(navController: NavHostController,
         composable(Screen.Achievements.route) {
             AchievementsScreen(onBackClick = { navController.popBackStack() })
         }
+        composable(Screen.Leaderboard.route) {
+            LeaderboardScreen(onBackClick = { navController.popBackStack() })
+        }
     }
 }
 
@@ -1620,7 +1774,45 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+
+        // --- Запуск напоминаний ---
+        // Запрос разрешения на уведомления (Android 13+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val requestPermissionLauncher = registerForActivityResult(
+                ActivityResultContracts.RequestPermission()
+            ) { isGranted: Boolean ->
+                if (isGranted) {
+                    // Разрешение получено
+                } else {
+                    // Отказано — ничего страшного, просто уведомления не будут работать
+                }
+            }
+
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+        // Создаём канал уведомлений
+        NotificationHelper.createNotificationChannel(this)
+
+        // Настраиваем периодическую задачу
+        val reminderRequest = PeriodicWorkRequestBuilder<ReminderWorker>(
+            3, TimeUnit.HOURS // Проверка каждые 3 часа — хороший баланс
+        )
+            .setInitialDelay(1, TimeUnit.HOURS) // Первое уведомление через 1 час
+            .build()
+
+        // Запускаем задачу. KEEP — переживёт перезагрузку, REPLACE — обновит политику, если что-то меняли
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "kotlin_koans_reminder",
+            ExistingPeriodicWorkPolicy.KEEP,
+            reminderRequest
+        )
+
     }
+
 }
 
 enum class FilterState { ALL, SOLVED, UNSOLVED }

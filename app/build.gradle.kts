@@ -39,7 +39,7 @@ android {
 }
 
 dependencies {
-    // Основные (через каталог версий)
+    // Основные
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
@@ -59,11 +59,14 @@ dependencies {
     //Навигация
     implementation("androidx.navigation:navigation-compose:2.7.7")
 
-    // ViewModel для Compose — если её нет в каталоге, добавим позже
+    // ViewModel для Compose
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
 
-    // Иконки (Material Icons Extended) — пригодятся для красоты
+    // Иконки
     implementation("androidx.compose.material:material-icons-extended")
+
+    //Уведомения
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
 
     // Тестирование
     testImplementation(libs.junit)
